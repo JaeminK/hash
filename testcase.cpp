@@ -8,8 +8,6 @@
 #include <time.h>
 #include <math.h>
 
-#include "boost/random.hpp"
-#include "boost/random/random_device.hpp"
 #include "hashmap.h"
 
 using namespace std;
@@ -59,6 +57,7 @@ void instruction()
     cout << "-----------------------------------------------------------------------------------------" << endl;
     return;
 }
+/*
 
 int print(int *collision, int size_buckets, int length)
 {
@@ -102,12 +101,11 @@ int print(int *collision, int size_buckets, int length)
     return total_sum;
 }
 
-void testcase_no_resize(HashMap<int> *(&map), const int size_buckets, const int type)
+void testcase_no_resize(const int size_buckets, const int type)
 {
-    //boost::random::random_device seed;
-    //static boost::random::mt19937 randEngine(seed());
-    static boost::random::mt19937 randEngine;
-    boost::random::uniform_int_distribution<unsigned int> dist(size_buckets, size_buckets * size_buckets);
+    random_device seed;
+    mt19937 randEngine(seed);
+    uniform_int_distribution<unsigned int> dist(size_buckets, size_buckets * size_buckets);
 
     int length = size_buckets;
     int collision[size_buckets];
@@ -119,11 +117,8 @@ void testcase_no_resize(HashMap<int> *(&map), const int size_buckets, const int 
     for (int i = 0; i < size_buckets; i++)
     {
         int number = dist(randEngine);
-        //srand(time(0));
-        //int number = rand() % (size_buckets * (int)sqrt(size_buckets));
-        // collision[i] = map->put(number, "randomString", type);
         string value(to_string(number));
-        collision[i] = map->put(number, value, type);
+        collision[i] = map->put(number, value);
         if (map->get(number, type) != value){
             cout << number << " " << value << endl;
             exit(1);
@@ -544,6 +539,7 @@ void testcase_string_remove_search(HashMap<string> *(&map), const int size_bucke
     return;
 }
 
+*/ 
 void testcase_general_case(){
     unsigned int bucket_size;
     unsigned int type;
@@ -558,9 +554,9 @@ void testcase_general_case(){
         cout << "Not a valid input. Exit the program." << endl;
         exit(1);
     }
-    HashMap<string> *map = new HashMap<string>(bucket_size);
+    HashMap<string, string> *map = new HashMap<string, string>(bucket_size);
 
-    cout << "enter type : ";
+    cout << "enter probing type... [0 : linear probing / 1 : quadratic probing / 2 : double hashing] : ";
     cin >> type;
     if (cin.fail())
     {
@@ -571,12 +567,14 @@ void testcase_general_case(){
         cout << "Not a valid range. Exit the program." << endl;
         exit(1);
     }
+    map->setType(type);
 
     while(true){
-        cout << "----------------------------------------------------------------------------" << endl;
-        cout << "  insert  |  delete  |   get    |  resize  |  change  |  print   |  exit    " << endl;
-        cout << "----------------------------------------------------------------------------" << endl;
+        cout << "---------------------------------------------------------------------------------------------" << endl;
+        cout << "|  insert  |  delete  |  get     |  change  | resize(on/off) |  print   |  clear   |  exit   |" << endl;
+        cout << "---------------------------------------------------------------------------------------------" << endl;
         todo = ""; key = ""; value = "";
+        cout << "Enter a command : ";
         cin >> todo;
         cin.clear();
         if (cin.fail())
@@ -592,37 +590,26 @@ void testcase_general_case(){
             cout << "Input val : ";
             cin >> value;
             cin.clear();
-            if (map->put(key, value, type) == bucket_size){
-                cout << "Insert fail! try again" << endl;
-                continue;
-            }
+            map->put(key, value);
         } else if (todo == "delete"){
             cout << "Input key : ";
             cin >> key;
             cin.clear();
-            cout << "Input val : ";
-            cin >> value;
-            cin.clear();
-            if (map->remove(key, value, type)){
-                cout << "Delete fail! try again" << endl;
+            if (map->remove(key) == ""){
+                cout << "Delete fail! key not in table" << endl;
                 continue;
             }
         } else if (todo == "get"){
             cout << "Input key : ";
             cin >> key;
             cin.clear();
-            cout << "Input val : ";
-            cin >> value;
-            cin.clear();
-            if (map->get(key, type) == value){
-                cout << "Get fail! try again" << endl;
+            if (map->get(key) != ""){
+                cout << map->get(key) << endl;
+            } else {
+                cout << "get fail! key not in table" << endl;
                 continue;
             }
-        } else if (todo == "resize"){
-            if (map->resize(type)){
-                cout << "Resize fail! try again" << endl;
-                continue;
-            }
+            
         } else if (todo == "change"){
             cout << "Input key : ";
             cin >> key;
@@ -630,16 +617,25 @@ void testcase_general_case(){
             cout << "Input val : ";
             cin >> value;
             cin.clear();
-            if (map->replace(key, value, type) == ""){
+            if (map->replace(key, value) == ""){
                 cout << "change fail! try again" << endl;
                 continue;
             }
+        } else if (todo == "resize"){
+            map->setResizeFlag(!map->getResizeFlag());
+            if (map->getResizeFlag()){
+                cout << "Resize on..." << endl;
+            } else {
+                cout << "Resize off..." << endl;
+            }
         } else if (todo == "print"){
             map->printBucket();
+        } else if (todo == "clear"){
+            map->clear();
         } else if (todo == "exit"){
             return;
         } else {
-            cout << "change fail! try again" << endl;
+            cout << "not a valid input... try again" << endl;
             continue;
         }
     }

@@ -1,360 +1,344 @@
 using namespace map;
 
-template <typename K>
-HashMap<K>::HashMap(unsigned int bucket_size)
+template <typename K, typename V>
+HashMap<K,V>::HashMap(unsigned int bucket_size)
 {
     buckets_ = new Bucket[bucket_size]();
-    size_buckets_ = bucket_size;
-    occupied_buckets_ = 0, replaced_key_ = 0;
-    DELETED_BUCKET = (Data *)new Data; // syntax check
-}
+    bucket_capacity_ = bucket_size;
+    occupied_buckets_ = 0, deleted_buckets_ = 0;
 
-template <typename K>
-HashMap<K>::~HashMap()
-{
-    // assert buckets!=nullpr;
-
-    clear();
-}
-
-template <typename K>
-void HashMap<K>::clear()
-{
-    if (buckets_ != nullptr)
-    {
-        for (unsigned int i = 0; i < size_buckets_; i++)
-        {
-            if (buckets_[i].data != nullptr && buckets_[i].data != DELETED_BUCKET)
-            {
-                delete buckets_[i].data;
-            }
-        }
-        delete[] buckets_;
+    // default
+    probing_type_ = 0;      // 0 : linear probing / 1 : quadratic probing / 2 : double hashing
+    resize_flag_ = true;
+    if (typeid(V) == typeid(string)){
+        RETURN_DEFAULT = EMPTY_STRING;
+    } else {
+        RETURN_DEFAULT = nullptr;
     }
+}
+
+template <typename K, typename V>
+HashMap<K,V>::~HashMap()
+{
+    static_assert(isEmptyTable(), "Attempt to delete empty table");
+    delete[] buckets_;
+}
+
+
+template <typename K, typename V>
+void HashMap<K,V>::clear()
+{
+    delete[] buckets_;
+    buckets_ = new Bucket[bucket_capacity_]();
+    occupied_buckets_ = 0;
+    deleted_buckets_ = 0;
+
     return;
 }
 
-// input : template class key, string value, probing threshold, probing type
-// output : total collision happened while inserting the key-value set
-template <typename K>
-unsigned int HashMap<K>::put(K key, string value, int type)
+
+template <typename K, typename V>
+V HashMap<K,V>::put(K key, V value)
 {
     unsigned int hash = hash_key(key);
     unsigned int index_probing;
     unsigned int i;
+    V return_value = RETURN_DEFAULT;
 
-    // inclement index whenever collision happened...
-    for (i = 0; i < size_buckets_; i++)
-    {
-        index_probing = index_probe(hash, i, type);
+    if (doResize()){
+        resize();
+    }
 
-        // when under condition... break the loop
-        //if (insertable(...))
-        if (buckets_[index_probing].data == DELETED_BUCKET)
-        {
+    for (i = 0; i < bucket_capacity_; i++){
+        index_probing = index_probe(hash, i);
+        if (isReplacable(key, index_probing) || !containsData(index_probing)){
             break;
-        }
-        else if (buckets_[index_probing].data == nullptr)
-        {
-            break;
-        }
-
-        //else if (need_replace...())
-        else if (hash == buckets_[index_probing].hash)
-        {
-            if (key == buckets_[index_probing].data->pair.first)
-            {
-                replaced_key_++;
-                break;
-            }
         }
     }
 
-    // when under condition... exit the function
-    if (i == size_buckets_)
-    {
-        return size_buckets_;
+    if (i != bucket_capacity_){
+        return_value = buckets_[index_probing].pair.second;
+
+        buckets_[index_probing].pair = make_pair(key, value);
+        buckets_[index_probing].hash = hash;
+
+        occupied_buckets_++;
     }
-
-    occupied_buckets_++;
-    Data *data = new Data;
-    data->pair = make_pair(key, value);
-    buckets_[index_probing].data = data;
-    buckets_[index_probing].hash = hash;
-
-    return i; // return total collision happend
+    return return_value; 
 }
 
-// input : probing type
-// output : true if successfully resized... false if failed
-template <typename K>
-bool HashMap<K>::resize(int type)
+template <typename K, typename V>
+V HashMap<K,V>::putIfAbsent(K key, V value)
 {
-    unsigned int old_size = size_buckets_;
-    size_buckets_ = old_size * 2; // default... double the current size
-    Bucket *new_buckets = new Bucket[size_buckets_]();
+    V value_get = get(key);
 
-    // iterate over the old bucket...
-    for (unsigned int index = 0; index < old_size; index++)
-    {
-        // when under condition... continue the loop
-        if (buckets_[index].data == nullptr || buckets_[index].data == DELETED_BUCKET)
-        {
-            continue;
-        }
-        else
-        {
-            // notice I'm not hashing again.. using previously computed and saved hash value
+    if (value_get == RETURN_DEFAULT){
+        return put(key, value);
+    }
+    return RETURN_DEFAULT;
+}
+
+
+template <typename K, typename V>
+void HashMap<K,V>::resize()
+{
+    unsigned int old_size = bucket_capacity_;
+    bucket_capacity_ = old_size * 2; // default... double the current size
+    Bucket *new_buckets = new Bucket[bucket_capacity_]();
+
+    for (unsigned int index = 0; index < old_size; index++){
+        if (containsData(index)){
             unsigned int hash = buckets_[index].hash;
             unsigned int index_probing;
             unsigned int i;
 
-            // inclement index whenever collision happened...
-            for (i = 0; i < size_buckets_; i++)
-            {
-                index_probing = index_probe(hash, i, type);
+            for (i = 0; i < bucket_capacity_; i++){
+                index_probing = index_probe(hash, i);
 
-                // when under condition... break the loop...
-                // notice new bucket cannot have deleted bucket... no need to check
-                if (new_buckets[index_probing].data == nullptr)
-                {
+                if (new_buckets[index_probing].hash == 0){
                     break;
                 }
             }
-            // this shouldn't happen
-            if (i == size_buckets_)
-            {
-                return false;
-            }
+            // assert (i == bucket_capacity_);
             new_buckets[index_probing] = buckets_[index];
             new_buckets[index_probing].hash = hash;
         }
     }
 
     delete buckets_;
-
     buckets_ = new_buckets;
+    deleted_buckets_ = 0;
 
-    return true;
-}
-
-// input : template class key, probing type
-// output : string value corresponding to the inserted key... empty string otherwise
-template <typename K>
-string HashMap<K>::get(K key, int type)
-{
-    unsigned int hash = hash_key(key);
-    unsigned int index_probing;
-    string return_string = "";
-
-    // inclement index whenever collision happened...
-    for (unsigned int i = 0; i < size_buckets_; i++)
-    {
-        index_probing = index_probe(hash, i, type);
-
-        // when deleted bucket.. continue
-        if (buckets_[index_probing].data == DELETED_BUCKET)
-        {
-            continue;
-        }
-        // when nullptr... break... key not in table...
-        else if (buckets_[index_probing].data == nullptr)
-        {
-            break;
-        }
-
-        // when current key matches with the saved key, return corresponding value
-        else if (hash == buckets_[index_probing].hash)
-        {
-            if (key == buckets_[index_probing].data->pair.first)
-            {
-                return_string = buckets_[index_probing].data->pair.second;
-                break;
-            }
-            continue;
-        }
-    }
-    // return empty string when couldn't find any corresponding key
-    return return_string;
-}
-
-// input : template class key, probing type
-// output : string value corresponding to the inserted key... empty string otherwise
-template <typename K>
-string HashMap<K>::remove(K key, int type)
-{
-    unsigned int hash = hash_key(key);
-    unsigned int index_probing;
-    string return_string = "";
-
-    for (unsigned int i = 0; i < size_buckets_; i++)
-    {
-        index_probing = index_probe(hash, i, type);
-        // Bucket *tmp = buckets_[index_probing]; 
-
-        if (buckets_[index_probing].data == DELETED_BUCKET)
-        {
-            continue;
-        }
-        else if (buckets_[index_probing].data == nullptr)
-        {
-            break;
-        }
-
-        else if (hash == buckets_[index_probing].hash)
-        {
-            if (key == buckets_[index_probing].data->pair.first)
-            {
-                return_string = buckets_[index_probing].data->pair.second;
-                delete buckets_[index_probing].data;
-                buckets_[index_probing].data = DELETED_BUCKET;
-
-                occupied_buckets_--;
-                break;
-            }
-            continue;
-        }
-    }
-    return return_string;
-}
-
-// input : template class key, string value, probing type
-// output : true if successfully deleted the data... false otherwise
-template <typename K>
-bool HashMap<K>::remove(K key, string value, int type)
-{
-    unsigned int hash = hash_key(key);
-    unsigned int index_probing;
-
-    for (unsigned int i = 0; i < size_buckets_; i++)
-    {
-        index_probing = index_probe(hash, i, type);
-
-        if (buckets_[index_probing].data == DELETED_BUCKET)
-        {
-            continue;
-        }
-        else if (buckets_[index_probing].data == nullptr)
-        {
-            break;
-        }
-
-        else if (hash == buckets_[index_probing].hash)
-        {
-            if (key == buckets_[index_probing].data->pair.first && value == buckets_[index_probing].data->pair.second)
-            {
-                delete buckets_[index_probing].data;
-                buckets_[index_probing].data = DELETED_BUCKET;
-                occupied_buckets_--;
-
-                return true;
-            }
-            continue;
-        }
-    }
-    return false;
-}
-
-// input : template class key, string value, probing type
-// output : string value corresponding to the inserted key... empty string otherwise
-template <typename K>
-string HashMap<K>::replace(K key, string value, int type)
-{
-    unsigned int hash = hash_key(key);
-    unsigned int index_probing;
-    string return_string = "";
-
-    for (unsigned int i = 0; i < size_buckets_; i++)
-    {
-        index_probing = index_probe(hash, i, type);
-
-        if (buckets_[index_probing].data == DELETED_BUCKET)
-        {
-            continue;
-        }
-        else if (buckets_[index_probing].data == nullptr)
-        {
-            break;
-        }
-
-        else if (hash == buckets_[index_probing].hash)
-        {
-            if (key == buckets_[index_probing].data->pair.first)
-            {
-                return_string = buckets_[index_probing].data->pair.second;
-                buckets_[index_probing].data->pair.second = value;
-
-                replaced_key_++;
-                break;
-            }
-            continue;
-        }
-    }
-    return return_string;
-}
-
-// input : template class key, string old value, string new value, probing type
-// output : true if successfully replaced the data... false otherwise
-template <typename K>
-bool HashMap<K>::replace(K key, string old_value, string new_value, int type)
-{
-    unsigned int hash = hash_key(key);
-    unsigned int index_probing;
-
-    for (unsigned int i = 0; i < size_buckets_; i++)
-    {
-        index_probing = index_probe(hash, i, type);
-
-        if (buckets_[index_probing].data == DELETED_BUCKET)
-        {
-            continue;
-        }
-        else if (buckets_[index_probing].data == nullptr)
-        {
-            break;
-        }
-        else if (hash == buckets_[index_probing].hash)
-        {
-            if (key == buckets_[index_probing].data->pair.first && old_value == buckets_[index_probing].data->pair.second)
-            {
-                pair<string, string> pair = make_pair(key, new_value);
-                buckets_[index_probing].data->pair = pair;
-                replaced_key_++;
-
-                return true;
-            }
-            continue;
-        }
-    }
-    return false;
-}
-
-template <typename K>
-void HashMap<K>::bucketStatus()
-{
-    cout << "... " << occupied_buckets_ << "/" << size_buckets_ << " buckets occupied ... " << replaced_key_ << " keys replaced";
-    cout << " ...approximately " << (float)occupied_buckets_ / size_buckets_ * 100 << "% full" << endl;
     return;
 }
 
-template <typename K>
-void HashMap<K>::printBucket()
+template <typename K, typename V>
+V HashMap<K,V>::get(K key)
+{
+    unsigned int hash = hash_key(key);
+    unsigned int index_probing;
+    string return_value = RETURN_DEFAULT;
+
+    for (unsigned int i = 0; i < bucket_capacity_; i++)
+    {
+        index_probing = index_probe(hash, i);
+
+        if (isDeleted(index_probing)){
+            continue;
+        }
+        if (isEmpty(index_probing)){
+            break;
+        }
+
+        if (isReplacable(key, index_probing)){
+            return_value = buckets_[index_probing].pair.second;
+            break;
+        }
+    }
+    return return_value;
+}
+
+template <typename K, typename V>
+V HashMap<K,V>::remove(K key)
+{
+    unsigned int hash = hash_key(key);
+    unsigned int index_probing;
+    string return_value = RETURN_DEFAULT;
+
+    for (unsigned int i = 0; i < bucket_capacity_; i++)
+    {
+        index_probing = index_probe(hash, i);
+
+        if (isDeleted(index_probing)){
+            continue;
+        }
+        if (isEmpty(index_probing)){
+            break;
+        }
+
+        if (isReplacable(key, index_probing)){
+            return_value = buckets_[index_probing].pair.second;
+            buckets_[index_probing].hash = DELETED_BUCKET;
+
+            occupied_buckets_--;
+            deleted_buckets_++;
+            break;
+        }
+    }
+    return return_value;
+}
+
+template <typename K, typename V>
+bool HashMap<K,V>::remove(K key, V value)
+{
+    unsigned int hash = hash_key(key);
+    unsigned int index_probing;
+    string return_value = RETURN_DEFAULT;
+
+    for (unsigned int i = 0; i < bucket_capacity_; i++)
+    {
+        index_probing = index_probe(hash, i);
+
+        if (isDeleted(index_probing)){
+            continue;
+        }
+        if (isEmpty(index_probing)){
+            break;
+        }
+
+        if (isReplacable(key, index_probing) && isValueMatch(value, index_probing)){
+            buckets_[index_probing].hash = DELETED_BUCKET;
+
+            occupied_buckets_--;
+            deleted_buckets_++;
+            return true;
+        }
+    }
+    return false;
+}
+
+template <typename K, typename V>
+V HashMap<K,V>::replace(K key, V value)
+{
+    unsigned int hash = hash_key(key);
+    unsigned int index_probing;
+    string return_value = RETURN_DEFAULT;
+
+    for (unsigned int i = 0; i < bucket_capacity_; i++)
+    {
+        index_probing = index_probe(hash, i);
+
+        if (isDeleted(index_probing)){
+            continue;
+        }
+        if (isEmpty(index_probing)){
+            break;
+        }
+
+        if (isReplacable(key, index_probing)){
+            return_value = buckets_[index_probing].pair.second;
+            buckets_[index_probing].pair.second = value;
+
+            break;
+        }
+    }
+    return return_value;
+}
+
+template <typename K, typename V>
+bool HashMap<K,V>::replace(K key, V old_value, V new_value)
+{
+    unsigned int hash = hash_key(key);
+    unsigned int index_probing;
+
+    for (unsigned int i = 0; i < bucket_capacity_; i++)
+    {
+        index_probing = index_probe(hash, i);
+
+        if (isDeleted(index_probing)){
+            continue;
+        }
+        if (isEmpty(index_probing)){
+            break;
+        }
+
+        if (isReplacable(key, index_probing) && isValueMatch(old_value, index_probing)){
+            buckets_[index_probing].pair.second = new_value;
+
+            return true;
+        }
+    }
+    return false;
+}
+
+
+template <typename K, typename V>
+void HashMap<K,V>::setType(int type){
+    probing_type_ = type;
+    return;
+}
+
+template <typename K, typename V>
+void HashMap<K,V>::setResizeFlag(bool flag){
+    resize_flag_ = flag;
+    return;
+}
+
+template <typename K, typename V>
+bool HashMap<K,V>::getResizeFlag(){
+    return resize_flag_;
+}
+
+
+/*
+template <typename K, typename V>
+bool HashMap<K,V>::isType(){
+    return (probing_type_ == 0 || probing_type_ == 1 || probing_type_ == 2);
+}
+*/
+
+template <typename K, typename V>
+bool HashMap<K,V>::doResize(){
+    return (resize_flag_ && occupied_buckets_ >= bucket_capacity_/2);
+}
+
+template <typename K, typename V>
+bool HashMap<K,V>::isEmptyTable(){
+    return (occupied_buckets_ == 0 && deleted_buckets_ == 0);
+}
+
+template <typename K, typename V>
+bool HashMap<K,V>::isEmpty(unsigned int index_probing){
+    return (buckets_[index_probing].hash == 0);
+}
+
+template <typename K, typename V>
+bool HashMap<K,V>::isDeleted(unsigned int index_probing){
+    return (buckets_[index_probing].hash == DELETED_BUCKET);
+}
+
+template <typename K, typename V>
+bool HashMap<K,V>::containsData(unsigned int index_probing){
+    return (!isEmpty(index_probing) && !isDeleted(index_probing));
+}
+
+template <typename K, typename V>
+bool HashMap<K,V>::isReplacable(K key, unsigned int index_probing){
+    return (key == buckets_[index_probing].pair.first);
+}
+
+template <typename K, typename V>
+bool HashMap<K,V>::isValueMatch(V value, unsigned int index_probing){
+    return (value == buckets_[index_probing].pair.second);
+}
+
+
+template <typename K, typename V>
+void HashMap<K,V>::bucketStatus()
+{
+    cout << "... " << occupied_buckets_ << "/" << bucket_capacity_ << " buckets occupied ... " << deleted_buckets_ << "/" << bucket_capacity_ << " buckets deleted ... ";
+    cout << " ...approximately " << (float)occupied_buckets_ / bucket_capacity_ * 100 << "% full" << endl;
+    return;
+}
+
+template <typename K, typename V>
+void HashMap<K,V>::printBucket()
 {
     cout << endl;
     cout << "---------------------------------------------------------------------------------------------" << endl;
     cout << "index |  hash key  |     key    |    value   | index |  hash key  |     key    |    value   " << endl;
     cout << "---------------------------------------------------------------------------------------------" << endl;
-    for (int i = 0; i < size_buckets_; i++){
+    for (int i = 0; i < bucket_capacity_; i++){
         cout.setf(ios::right);
         cout << setw(5) << i << " | ";
-        if (buckets_[i].data != nullptr){
+        if (buckets_[i].hash != 0){
             cout.setf(ios::right);
             cout << setw(10) << buckets_[i].hash << " | ";
-            if (buckets_[i].data != DELETED_BUCKET){
+            if (buckets_[i].hash != DELETED_BUCKET){
                 cout.setf(ios::right);
-                cout << setw(10) << buckets_[i].data->pair.first << " | ";
+                cout << setw(10) << buckets_[i].pair.first << " | ";
                 cout.setf(ios::right);
-                cout << setw(10) << buckets_[i].data->pair.second << " | ";
+                cout << setw(10) << buckets_[i].pair.second << " | ";
             } else {
                 cout << setw(10) << " " << " | ";
                 cout << setw(10) << " " << " | ";
